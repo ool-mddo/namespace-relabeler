@@ -62,7 +62,6 @@ def relabel(metrics_text: str) -> str:
         logger.info(f'relabeling {m.name}')
         for sample in m.samples:
             node_name = sample.labels['name'].replace('clab-emulated-', '')
-            logger.info(node_name)
             if node_name in mappings.keys():
                 if_maps = mappings[node_name]
                 if_name_emu = f"{sample.labels['interface']}.0"
