@@ -1,5 +1,5 @@
 from flask import Flask, request, Response
-from logging import getLogger, Formatter, StreamHandler, DEBUG
+from logging import getLogger, Formatter, StreamHandler, ERROR
 from prometheus_client import parser, Metric
 import sys
 import requests
@@ -8,12 +8,12 @@ import os
 
 
 logger = getLogger('root')
-logger.setLevel(DEBUG)
+logger.setLevel(ERROR)
 formatter = Formatter("[{asctime}: {message} ({funcName}:{lineno}]) ", style="{")
 
 sh = StreamHandler(sys.stdout)
 sh.setFormatter(formatter)
-sh.setLevel(DEBUG)
+sh.setLevel(ERROR)
 logger.addHandler(sh)
 
 app = Flask(__name__)
@@ -21,7 +21,9 @@ app = Flask(__name__)
 CADVISOR_URL = os.environ.get("CADVISOR_URL")
 logger.info(f"CADVISOR_URL: {CADVISOR_URL}")
 
-NS_CONVERT_TABLE_URL = os.environ.get("NS_CONVERT_TABLE_URL")
+NETOMOX_EXP_HOST = os.environ.get("NETOMOX_EXP_HOST")
+logger.info(f"NETOMOX_EXP_HOST: {NETOMOX_EXP_HOST}")
+NS_CONVERT_TABLE_URL = f"http://{ NETOMOX_EXP_HOST }/topologies/mddo-bgp/ns_convert_table"
 logger.info(f"NS_CONVERT_TABLE_URL: {NS_CONVERT_TABLE_URL}")
 
 TARGET_METRICS = ['container_network_receive_bytes', 'container_network_transmit_bytes']
@@ -42,7 +44,7 @@ def metrics():
 def get_ns_convert_table() -> list|dict|None:
     response = requests.get(NS_CONVERT_TABLE_URL)
     if response.status_code != 200:
-        logger.info(f"Failed to get ns_convert_table from {NS_CONVERT_TABLE_URL}")
+        logger.error(f"Failed to get ns_convert_table from {NS_CONVERT_TABLE_URL}")
         return None
     return json.loads(response.text)
 
@@ -56,7 +58,7 @@ def relabel(metrics_text: str) -> str:
     metrics = list(parser.text_string_to_metric_families(metrics_text))
     for m in metrics:
         if m.name not in TARGET_METRICS:
-            logger.info(f'skipped {m.name}')
+            logger.debug(f'skipped {m.name}')
             continue
 
         logger.info(f'relabeling {m.name}')
@@ -88,5 +90,5 @@ def build_metrics_string(metrics: list[Metric]) -> str:
     return '\n'.join(metric_lines)
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5000)
 
