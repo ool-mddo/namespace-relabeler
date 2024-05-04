@@ -1,5 +1,5 @@
 from flask import Flask, request, Response
-from logging import getLogger, Formatter, StreamHandler, ERROR
+from logging import getLogger, Formatter, StreamHandler, WARNING
 from prometheus_client import parser, Metric
 import sys
 import requests
@@ -8,12 +8,11 @@ import os
 
 
 logger = getLogger('root')
-logger.setLevel(ERROR)
+logger.setLevel(WARNING)
 formatter = Formatter("[{asctime}: {message} ({funcName}:{lineno}]) ", style="{")
-
 sh = StreamHandler(sys.stdout)
 sh.setFormatter(formatter)
-sh.setLevel(ERROR)
+sh.setLevel(WARNING)
 logger.addHandler(sh)
 
 app = Flask(__name__)
@@ -23,10 +22,38 @@ logger.info(f"CADVISOR_URL: {CADVISOR_URL}")
 
 NETOMOX_EXP_HOST = os.environ.get("NETOMOX_EXP_HOST")
 logger.info(f"NETOMOX_EXP_HOST: {NETOMOX_EXP_HOST}")
-NS_CONVERT_TABLE_URL = f"http://{ NETOMOX_EXP_HOST }/topologies/mddo-bgp/ns_convert_table"
-logger.info(f"NS_CONVERT_TABLE_URL: {NS_CONVERT_TABLE_URL}")
 
 TARGET_METRICS = ['container_network_receive_bytes', 'container_network_transmit_bytes']
+mappings = None
+
+
+def update_mappings(network_name: str):
+    # try to get ns_conver_table
+    ns_convert_table = get_ns_convert_table(network_name)
+    if ns_convert_table is None:
+        logger.error(f"Can not fetch ns_convert_table for network:{network_name}")
+        return
+
+    # check mappings key existence
+    if not "tp_name_table" in ns_convert_table:
+        logger.error(f"ns_convert_table (for network:{network_name}) does not have tp_name_table")
+        return
+
+    # update mappings
+    logger.warning(f"Update tp name table mapping for network:{network_name}")
+    global mappings
+    mappings = ns_convert_table.get("tp_name_table")
+
+
+@app.route('/relabel/network', methods=['POST'])
+def post_network():
+    params = request.json
+    if params and "network_name" in params:
+        update_mappings(params["network_name"])
+        return f'Network name is {params["network_name"]}', 200
+    else:
+        return 'Network name is missing', 400
+
 
 @app.get('/metrics')
 def metrics():
@@ -41,17 +68,18 @@ def metrics():
 
     return Response(relabeled_metrics, content_type='text/plain', status=200)
 
-def get_ns_convert_table() -> list|dict|None:
-    response = requests.get(NS_CONVERT_TABLE_URL)
+
+def get_ns_convert_table(network_name: str) -> list|dict|None:
+    ns_convert_table_url = f"http://{ NETOMOX_EXP_HOST }/topologies/{ network_name }/ns_convert_table"
+    response = requests.get(ns_convert_table_url)
     if response.status_code != 200:
-        logger.error(f"Failed to get ns_convert_table from {NS_CONVERT_TABLE_URL}")
+        logger.error(f"Failed to get ns_convert_table from {ns_convert_table_url}")
         return None
+
     return json.loads(response.text)
 
+
 def relabel(metrics_text: str) -> str:
-
-    mappings = get_ns_convert_table().get("tp_name_table")
-
     if mappings is None:
         return ""
 
@@ -74,8 +102,8 @@ def relabel(metrics_text: str) -> str:
 
     return build_metrics_string(metrics)
 
-def build_metrics_string(metrics: list[Metric]) -> str:
 
+def build_metrics_string(metrics: list[Metric]) -> str:
     metric_lines = []
     for m in metrics:
         metric_lines.append(f'# {m.name} {m.documentation}')
@@ -88,6 +116,7 @@ def build_metrics_string(metrics: list[Metric]) -> str:
                 metric_lines.append(f'{s.name}{{{label}}} {s.value}')
 
     return '\n'.join(metric_lines)
+
 
 if __name__ == "__main__":
     app.run(debug=True, host='0.0.0.0', port=5000)
