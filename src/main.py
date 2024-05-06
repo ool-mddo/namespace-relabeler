@@ -1,21 +1,28 @@
 import json
 import os
 import sys
-from logging import getLogger, Formatter, StreamHandler, WARNING
+from logging import getLogger, Formatter, StreamHandler
 import requests
 from flask import Flask, request, Response
 from prometheus_client import parser, Metric
 
+# logger config
+# convert log-level string (from env var) to log-level value, default: warning
+log_level_str = os.getenv("NAMESPACE_RELABELER_LOG_LEVEL", "WARNING").upper()
+log_level = getattr(sys.modules["logging"], log_level_str)
+
 logger = getLogger("root")
-logger.setLevel(WARNING)
+logger.setLevel(log_level)
 formatter = Formatter("[{asctime}: {message} ({funcName}:{lineno}]) ", style="{")
 sh = StreamHandler(sys.stdout)
 sh.setFormatter(formatter)
-sh.setLevel(WARNING)
+sh.setLevel(log_level)
 logger.addHandler(sh)
 
+# flask application
 app = Flask(__name__)
 
+# constants
 CADVISOR_URL = os.environ.get("CADVISOR_URL")
 logger.info(f"CADVISOR_URL: {CADVISOR_URL}")
 
@@ -27,14 +34,14 @@ mappings = None
 
 
 def update_mappings(network_name: str):
-    # try to get ns_conver_table
+    # try to get ns_convert_table
     ns_convert_table = get_ns_convert_table(network_name)
     if ns_convert_table is None:
         logger.error(f"Can not fetch ns_convert_table for network:{network_name}")
         return
 
     # check mappings key existence
-    if not "tp_name_table" in ns_convert_table:
+    if "tp_name_table" not in ns_convert_table:
         logger.error(f"ns_convert_table (for network:{network_name}) does not have tp_name_table")
         return
 
@@ -69,7 +76,7 @@ def metrics():
 
 
 def get_ns_convert_table(network_name: str) -> list | dict | None:
-    ns_convert_table_url = f"http://{ NETOMOX_EXP_HOST }/topologies/{ network_name }/ns_convert_table"
+    ns_convert_table_url = f"http://{NETOMOX_EXP_HOST}/topologies/{network_name}/ns_convert_table"
     response = requests.get(ns_convert_table_url)
     if response.status_code != 200:
         logger.error(f"Failed to get ns_convert_table from {ns_convert_table_url}")
