@@ -116,10 +116,7 @@ def build_metrics_string(metrics: list[Metric]) -> str:
         metric_lines.append(f"# {m.name} {m.type}")
         for s in m.samples:
             label = ",".join([f'{key}="{value}"' for key, value in s.labels.items()])
-            if s.timestamp is not None:
-                metric_lines.append(f'{s.name}{{{label}}} {s.value} {str(s.timestamp).replace(".", "")}')
-            else:
-                metric_lines.append(f"{s.name}{{{label}}} {s.value}")
+            metric_lines.append(f"{s.name}{{{label}}} {s.value}")
 
     return "\n".join(metric_lines)
 
